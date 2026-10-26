@@ -3,7 +3,7 @@
 The GNU Backgammon (gnubg 1.08.003) evaluation engine as a small,
 self-contained C library, to be wrapped as a Godot GDExtension. Given a board
 and dice it returns the best move, plus cube decisions and evaluations.
-Targets: Linux x86_64 (done), Windows x86_64 via mingw-w64, Android arm64 via
+Targets: Linux x86_64 (done), Windows x86_64 via mingw-w64 (done), Android arm64 via
 the NDK. All builds are done from a Debian 12 host.
 
 ## Layout
@@ -86,15 +86,17 @@ probabilities, equities and cube numbers.
 ## Status and next steps
 
 1. Done: Linux x86_64 shared and static library, CLI, docs.
-2. **Next: Windows x86_64 (mingw-w64).** This needs a static glib (and pcre2,
-   libintl/iconv as required) built for mingw. Debian doesn't package mingw
-   glib, so the likely route is a meson cross build in a build script under
-   the repo. Check `pkg-config --static` for mingw and the Win32 system libs
-   (ws2_32, ole32, ...). The output is `gnubg.dll`, plus `gnubg-cli.exe`
-   tested under wine if available.
-3. Android arm64-v8a (NDK). Cross-build glib, or replace it with a small
-   shim header if that's simpler. The engine core makes about 200 glib
-   calls, mostly `g_malloc`/`g_free`/`g_strdup`/`g_build_filename`/`g_print`.
+2. Done: Windows x86_64 (mingw-w64). `scripts/build-glib-mingw.sh` builds
+   a static glib 2.74.6 with meson (wraps for pcre2/libffi/zlib/proxy-libintl)
+   into `build/deps/mingw-x86_64`, and
+   `cmake/toolchains/mingw-w64-x86_64.cmake` points pkg-config there.
+   `gnubg.dll` imports only Windows system DLLs. Under wine its best-move and
+   cube output matches Linux. Self-play can differ between platforms on exact
+   equity ties (msvcrt and glibc `qsort` order equal elements differently).
+3. **Next: Android arm64-v8a (NDK).** Probably the easiest route is the same
+   meson cross build as for Windows, with an NDK cross file. A shim is the
+   alternative: the engine links 25 glib functions, mostly trivial, except
+   `g_markup_*` (MET XML parser) and `g_mapped_file_*` (bearoff DBs).
 4. Godot GDExtension wrapper (godot-cpp), kept separate from the C library.
 
 ## Working conventions

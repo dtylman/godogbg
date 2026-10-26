@@ -49,9 +49,11 @@ if(GNUBG_STATIC_GLIB)
     endforeach()
     list(APPEND GLIB_LINK_LIBRARIES ${GLIB_STATIC_LDFLAGS_OTHER})
     set(GLIB_COMPILE_DEFINITIONS GLIB_STATIC_COMPILATION)
+    set(GLIB_COMPILE_OPTIONS ${GLIB_STATIC_CFLAGS_OTHER})
 else()
     set(GLIB_LINK_LIBRARIES ${GLIB_LINK_LIBRARIES})
     set(GLIB_COMPILE_DEFINITIONS "")
+    set(GLIB_COMPILE_OPTIONS ${GLIB_CFLAGS_OTHER})
 endif()
 
 # ---------------------------------------------------------------------------
@@ -129,6 +131,7 @@ target_compile_definitions(gnubg_objects PRIVATE
     ${SIMD_DEFINITIONS}
     GNUBG_API_BUILD_SHARED)
 target_compile_options(gnubg_objects PRIVATE
+    ${GLIB_COMPILE_OPTIONS}
     ${SIMD_OPTIONS}
     $<$<CONFIG:Release>:-O3>
     -ffast-math
