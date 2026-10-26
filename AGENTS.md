@@ -96,6 +96,11 @@ probabilities, equities and cube numbers.
   pack, `globalize_path()` returns a relative path, and FileAccess resolves
   that inside the pack. Exports need `addons/godogbg/data/*` in the
   non-resource export filter.
+- **mingw C++ needs the posix thread model.** Debian's default
+  `x86_64-w64-mingw32-g++` is the win32 variant, which has no `std::mutex`
+  in GCC 12 (godot-cpp and the wrapper need it). The toolchain file uses
+  `g++-posix` for C++ only. godot-cpp links the runtime statically, so the
+  addon DLL doesn't import libwinpthread. C stays win32.
 - **godot-cpp build profile.** `godot/build_profile.json` lists the Godot
   classes the wrapper uses, which keeps each build under a minute. Add a
   class there before using it from `src/`.
@@ -124,10 +129,11 @@ probabilities, equities and cube numbers.
 4. Godot GDExtension (`godot/`, singleton `Gnubg`). Linux: tested headless
    in Godot 4.7.2, both from the editor and from an exported `.pck`. The
    seed-42 self-play is identical to `gnubg-cli`. Android: builds (API 21,
-   16 KB pages) but hasn't been run in an APK yet. Windows: needs
-   `g++-mingw-w64-x86-64` (not installed yet).
-5. Next: build and test the Windows addon; test the Android addon in a real
-   APK export (needs Godot's export templates).
+   16 KB pages) but hasn't been run in an APK yet. Windows: tested with
+   the Windows Godot 4.7.2 editor under wine (all checks pass; self-play
+   identical to `gnubg-cli.exe`). The DLL imports only system DLLs.
+5. Next: test the Android addon in a real APK export (needs Godot's export
+   templates), ideally on arm64 hardware.
 
 ## Working conventions
 

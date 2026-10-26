@@ -11,7 +11,10 @@ set(CMAKE_SYSTEM_PROCESSOR x86_64)
 
 set(_triple x86_64-w64-mingw32)
 set(CMAKE_C_COMPILER ${_triple}-gcc)
-set(CMAKE_CXX_COMPILER ${_triple}-g++)
+# C++ (the Godot addon) needs std::mutex, which GCC 12 only has with the posix
+# thread model; Debian's default g++ is the win32 one. C stays win32, so
+# gnubg.dll doesn't need libwinpthread.
+set(CMAKE_CXX_COMPILER ${_triple}-g++-posix)
 set(CMAKE_RC_COMPILER ${_triple}-windres)
 
 get_filename_component(_repo "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
