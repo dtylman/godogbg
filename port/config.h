@@ -30,6 +30,8 @@
 #define HAVE_POSIX_MEMALIGN 1
 #define HAVE_SYS_TIME_H 1
 #define HAVE_UNISTD_H 1
+#else
+#define HAVE__ALIGNED_MALLOC 1
 #endif
 
 /* No USE_MULTITHREAD: the library is driven from a single caller thread. */
