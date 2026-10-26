@@ -5,6 +5,15 @@ the singleton `Gnubg`. It needs Godot 4.5 or newer (it's built with godot-cpp
 4.5 and tested with Godot 4.7.2). Each platform ships one self-contained
 library, with the engine and glib linked in statically.
 
+| Platform | Status |
+|---|---|
+| Linux x86_64 | Tested headless in Godot 4.7.2, from the editor and from an exported `.pck` |
+| Windows x86_64 | Tested with the Windows Godot 4.7.2 editor under wine |
+| Android arm64-v8a | Builds (API 21+, 16 KB pages); not yet run inside an exported APK |
+
+In every tested setup the seed-42 self-play game played through GDScript is
+identical to `gnubg-cli` on the same platform.
+
 ## Building
 
 ```bash
@@ -166,6 +175,16 @@ G=~/godot/Godot_v4.7.2-stable_linux.x86_64
 $G --headless --path godot --import         # once: registers the extension
 $G --headless --path godot --script res://test/test_gnubg.gd -- /tmp/selfplay.txt
 diff /tmp/selfplay.txt <(build/linux-x86_64/gnubg-cli data selfplay 42)
+```
+
+On Windows, the same test runs with the Windows editor under wine. The
+self-play matches `gnubg-cli.exe`, not Linux, because of the `qsort`
+tie-break noted in [BUILDING.md](BUILDING.md):
+
+```bash
+export WINEDEBUG=-all WINEPREFIX=$PWD/build/wineprefix
+wine Godot_v4.7.2-stable_win64_console.exe --headless --path "Z:$PWD/godot" \
+    --script res://test/test_gnubg.gd -- 'Z:/tmp/selfplay-win.txt'
 ```
 
 To test the exported-game path (data unpacked from the `.pck`) without

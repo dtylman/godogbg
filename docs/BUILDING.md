@@ -18,6 +18,8 @@ All builds use CMake from a Debian 12 host.
 | `GNUBG_SIMD` | `auto` | `auto`, `none`, `sse2`, `avx` or `neon`. `auto` picks `sse2` on x86_64, `neon` on arm64 and `none` otherwise. |
 | `GNUBG_STATIC_GLIB` | `ON` | Link glib and its dependencies (pcre2, plus libintl/libiconv on Windows and Android) statically into the shared library. |
 | `GNUBG_BUILD_CLI` | `ON` | Build `gnubg-cli`. |
+| `GNUBG_BUILD_GODOT` | `OFF` | Also build the Godot GDExtension in [godot/](../godot/) (needs a C++ compiler; downloads godot-cpp). See [GODOT.md](GODOT.md). |
+| `GODOTCPP_TARGET` | `template_debug` | With `GNUBG_BUILD_GODOT`: `template_debug` or `template_release`. |
 
 Use `avx` only if every target CPU supports AVX. The engine checks at start-up
 and **exits the process** if AVX is missing. `sse2` and `neon` are always
@@ -45,13 +47,18 @@ Set `GNUBG_SKILL=0..7` to run `gnubg-cli` at another level (0 = beginner,
 
 ## Windows x86_64 (mingw-w64)
 
-Cross-compiled from Linux with Debian's mingw-w64 (win32 thread model). Debian
-doesn't package glib for mingw, so a script cross-builds a static glib first.
+Cross-compiled from Linux with Debian's mingw-w64. Debian doesn't package
+glib for mingw, so a script cross-builds a static glib first.
 
 ```bash
 sudo apt install gcc-mingw-w64-x86-64 meson ninja-build pkg-config git curl
-sudo apt install wine wine64      # optional, to run gnubg-cli.exe
+sudo apt install g++-mingw-w64-x86-64   # only for the Godot addon
+sudo apt install wine wine64            # optional, to run gnubg-cli.exe
 ```
+
+C is compiled with the default (win32 thread model) compiler. C++, used only
+by the Godot addon, uses `x86_64-w64-mingw32-g++-posix`, because GCC 12's
+win32 variant has no `std::mutex`. The toolchain file selects both.
 
 Build glib 2.74.6 (the same version as Debian 12's) as a static library. The
 script downloads the glib tarball (checking its sha256), and meson fetches
@@ -156,9 +163,22 @@ about 1.9 MB.
 
 `scripts/build-godot-addon.sh PLATFORM...` builds the GDExtension in
 `godot/addons/godogbg` for each platform (`linux-x86_64`, `windows-x86_64`,
-`android-arm64`), in both variants. This needs a C++ compiler for the target
-as well: `g++` on Linux, `g++-mingw-w64-x86-64` for Windows (the NDK already
-has one). See [GODOT.md](GODOT.md).
+`android-arm64`), in both the `template_debug` and `template_release`
+variants. Windows and Android need their static glib from
+`scripts/build-glib.sh` first. This also needs a C++ compiler for the target:
+`g++` on Linux, `g++-mingw-w64-x86-64` for Windows (the NDK already has one).
+
+```bash
+scripts/build-godot-addon.sh linux-x86_64 windows-x86_64
+ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/28.2.13676358 \
+    scripts/build-godot-addon.sh android-arm64
+```
+
+Each platform's addon library contains the engine, glib and godot-cpp, and
+exports only the GDExtension entry point (plus `gnubg_*` on Windows). It
+depends only on system libraries: libc, libm and libmvec on Linux; Windows
+system DLLs; and libc, libm and libdl on Android. See [GODOT.md](GODOT.md) for
+the GDScript API and testing.
 
 ## Updating the engine sources
 

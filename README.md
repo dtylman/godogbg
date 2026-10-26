@@ -1,28 +1,34 @@
 # godogbg
 
 The [GNU Backgammon](https://www.gnu.org/software/gnubg/) evaluation engine
-packaged as a small, self-contained C library, intended to be wrapped as a
-Godot GDExtension.
+packaged as a small, self-contained C library, plus a Godot 4 addon that
+makes it available to GDScript.
 
 Give it a board and dice and it returns the best move. It also returns the
 cube decision and the win/gammon probabilities. This is the same neural-net
 engine and the same strength as gnubg itself (beginner through grandmaster).
 
 - **No GUI and no external runtime dependencies.** glib is linked statically
-  and its symbols are hidden. On Linux the shared library depends only on glibc.
+  and its symbols are hidden. Each library depends only on the platform's
+  system libraries.
 - **Small C API** ([include/gnubg_api.h](include/gnubg_api.h)) with 16 functions.
+- **Godot addon** ([godot/addons/godogbg](godot/addons/godogbg)): a
+  GDExtension with a `Gnubg` singleton for GDScript, including async moves.
 - [gnubg/](gnubg/) is the **unmodified** GNU Backgammon 1.08.003 release.
   The CMake build compiles only the 17 engine files it needs, and all
   adaptation is in [port/](port/) and [src/](src/).
 
 ## Status
 
-| Platform | Status |
-|---|---|
-| Linux x86_64 | Builds and is tested. Results are identical to gnubg 1.08.003. |
-| Windows x86_64 (mingw-w64) | Planned |
-| Android arm64 (NDK) | Planned |
-| Godot GDExtension wrapper | Planned |
+| Platform | C library | Godot addon |
+|---|---|---|
+| Linux x86_64 | Tested; results identical to gnubg 1.08.003 | Tested in Godot 4.7.2 (editor and exported `.pck`) |
+| Windows x86_64 (mingw-w64) | Tested under wine | Tested in Godot 4.7.2 under wine |
+| Android arm64-v8a (NDK, API 21+) | Tested on an emulator (arm64 translation) | Builds; not yet run in an exported APK |
+
+Everything builds on a Debian 12 host; Windows and Android are cross-compiled. The same seed can give a
+different self-play game on another platform, but only where two moves have
+exactly equal equity (see [docs/BUILDING.md](docs/BUILDING.md)).
 
 ## Quick start (Linux)
 
@@ -35,8 +41,27 @@ build/linux-x86_64/gnubg-cli data best 4HPwATDgc/ABMA 3 1
 build/linux-x86_64/gnubg-cli data selfplay 42
 ```
 
-See [docs/BUILDING.md](docs/BUILDING.md) for build options and the other
-platforms.
+See [docs/BUILDING.md](docs/BUILDING.md) for build options and for Windows
+and Android.
+
+## Using it from Godot
+
+Build the addon, then copy `godot/addons/godogbg/` into your project:
+
+```bash
+scripts/build-godot-addon.sh linux-x86_64   # also windows-x86_64, android-arm64
+```
+
+```gdscript
+Gnubg.init("res://addons/godogbg/data")
+var board := Gnubg.initial_board()          # PackedInt32Array of 50
+var move := Gnubg.best_move(board, 3, 1)    # {from, to, text, eval}
+board = Gnubg.swap_sides(Gnubg.apply_move(board, move))
+```
+
+In every export preset, add `addons/godogbg/data/*` to the non-resource
+export filter. [docs/GODOT.md](docs/GODOT.md) has the full GDScript API,
+covering the board layout, cube decisions, match play and the async methods.
 
 ## Using the API
 
@@ -81,8 +106,9 @@ has both on.
 ### Runtime data
 
 `gnubg_init()` loads files from the given directory. Ship [data/](data/) with
-your game. In Godot, copy it from `res://` to `user://` first, because the
-engine reads with plain `fopen`.
+your game. The engine reads its files with plain `fopen` and memory-maps the
+bearoff DBs, so they have to be real files on disk. The Godot addon handles
+this by unpacking them from `res://` to `user://` in exported games.
 
 | File | Size | Required |
 |---|---|---|
@@ -93,9 +119,11 @@ engine reads with plain `fopen`.
 
 ### Threading
 
-The library is single-threaded and not re-entrant. Call it from one thread at a
-time, for example from a Godot `WorkerThreadPool` task so the UI doesn't stall.
-A World Class move takes roughly 10–100 ms on a desktop CPU.
+The C library is single-threaded and not re-entrant: call it from one thread
+at a time. A World Class move takes roughly 10–100 ms on a desktop CPU. The
+Godot addon serialises calls itself and provides `best_move_async()` /
+`cube_action_async()`, which run on the `WorkerThreadPool` so the UI doesn't
+stall.
 
 ## License
 
@@ -103,5 +131,6 @@ GPL-3.0-or-later; see [LICENSE](LICENSE). This project is a derivative of
 GNU Backgammon, Copyright (C) 1999–2024 Gary Wong and the gnubg authors. The
 upstream sources, copyright notices and AUTHORS are kept in [gnubg/](gnubg/).
 
-Because the engine is GPL, a game that links this library must also be
-distributed under GPL-compatible terms, with source available.
+Because the engine is GPL, a game that links this library or ships the Godot
+addon must also be distributed under GPL-compatible terms, with source
+available.
