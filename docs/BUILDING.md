@@ -152,6 +152,14 @@ equity ties because bionic's `qsort` orders equal elements differently.
 `libgnubg.so` is about 2.6 MB. Strip it with `$R/llvm-strip` to get it to
 about 1.9 MB.
 
+## Godot addon
+
+`scripts/build-godot-addon.sh PLATFORM...` builds the GDExtension in
+`godot/addons/godogbg` for each platform (`linux-x86_64`, `windows-x86_64`,
+`android-arm64`), in both variants. This needs a C++ compiler for the target
+as well: `g++` on Linux, `g++-mingw-w64-x86-64` for Windows (the NDK already
+has one). See [GODOT.md](GODOT.md).
+
 ## Updating the engine sources
 
 `gnubg/` holds the unmodified gnubg release tarball. Don't run `./configure`

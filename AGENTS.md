@@ -24,6 +24,11 @@ arm64-v8a via the NDK. All builds are done from a Debian 12 host.
 - `scripts/build-glib.sh TARGET`: cross-builds the static glib (and, for
   Android, GNU libiconv) into `build/deps/TARGET`. `cmake/toolchains/` has a
   toolchain file per cross target that points pkg-config there.
+- `godot/`: the GDExtension (`src/`, godot-cpp 4.5 fetched by CMake) and a
+  Godot test project around the addon `addons/godogbg/`. It registers the
+  engine singleton `Gnubg`. Its `bin/` and `data/` are build outputs.
+  `scripts/build-godot-addon.sh PLATFORM...` builds both template variants.
+  The GDScript API is documented in `docs/GODOT.md`.
 - `docs/BUILDING.md`: build instructions per platform. Keep it updated as
   platforms are added.
 
@@ -83,6 +88,17 @@ probabilities, equities and cube numbers.
   same seed can still diverge where two moves have exactly equal equity:
   gnubg sorts with `qsort`, and glibc, msvcrt and bionic order equal elements
   differently.
+- **Godot data files.** The engine needs real files (`fopen`, mmap), so
+  `Gnubg.init("res://...")` uses `res://` directly only when it globalizes
+  to an absolute path containing `gnubg.wd` (the editor). Otherwise, in
+  exported games, it unpacks the data to `user://godogbg/data`. Don't decide
+  by the `editor` feature tag: the editor binary can run a `.pck` too. From a
+  pack, `globalize_path()` returns a relative path, and FileAccess resolves
+  that inside the pack. Exports need `addons/godogbg/data/*` in the
+  non-resource export filter.
+- **godot-cpp build profile.** `godot/build_profile.json` lists the Godot
+  classes the wrapper uses, which keeps each build under a minute. Add a
+  class there before using it from `src/`.
 - **Board convention** (gnubg's TanBoard): `board[1]` is the player on roll
   and `board[0]` the opponent. Each side is indexed from its own home: index
   0..23 is points 1..24, and index 24 is the bar. Call `gnubg_swap_sides()`
@@ -105,8 +121,13 @@ probabilities, equities and cube numbers.
 3. Done: Android arm64-v8a, API 21, NDK r28c: `libgnubg.so`, needing only
    libc, libm and libdl, with 16 KB page alignment. Tested on the Pixel_8
    AVD (x86_64, API 36), which runs arm64 binaries through translation.
-4. **Next: Godot GDExtension wrapper** (godot-cpp), kept separate from the C
-   library.
+4. Godot GDExtension (`godot/`, singleton `Gnubg`). Linux: tested headless
+   in Godot 4.7.2, both from the editor and from an exported `.pck`. The
+   seed-42 self-play is identical to `gnubg-cli`. Android: builds (API 21,
+   16 KB pages) but hasn't been run in an APK yet. Windows: needs
+   `g++-mingw-w64-x86-64` (not installed yet).
+5. Next: build and test the Windows addon; test the Android addon in a real
+   APK export (needs Godot's export templates).
 
 ## Working conventions
 

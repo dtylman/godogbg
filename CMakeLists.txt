@@ -6,6 +6,7 @@ set(GNUBG_SIMD "auto" CACHE STRING "SIMD backend: auto, none, sse2, avx, neon")
 set_property(CACHE GNUBG_SIMD PROPERTY STRINGS auto none sse2 avx neon)
 option(GNUBG_STATIC_GLIB "Link glib statically into the shared library" ON)
 option(GNUBG_BUILD_CLI "Build the gnubg-cli test program" ON)
+option(GNUBG_BUILD_GODOT "Build the Godot GDExtension in godot/" OFF)
 
 # gnubg sources #include "config.h", which the compiler looks up next to the
 # source file first: a leftover from ./configure would shadow port/config.h.
@@ -170,4 +171,8 @@ if(GNUBG_BUILD_CLI)
     elseif(NOT WIN32)
         set_target_properties(gnubg-cli PROPERTIES BUILD_RPATH "$ORIGIN")
     endif()
+endif()
+
+if(GNUBG_BUILD_GODOT)
+    add_subdirectory(godot)
 endif()

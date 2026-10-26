@@ -1,0 +1,8 @@
+; Test project for the godogbg addon. Copy addons/godogbg into your game.
+
+config_version=5
+
+[application]
+
+config/name="godogbg test"
+config/features=PackedStringArray("4.5")
