@@ -371,6 +371,385 @@ gnubg_apply_move(gnubg_board board, const gnubg_move *move)
     return 0;
 }
 
+/*
+ * Legal moves.
+ *
+ * gnubg's GenerateMoves() fills a buffer that the evaluator also uses (one
+ * global without USE_MULTITHREAD), so it can't run while gnubg_best_move()
+ * is searching on another thread. generate_moves() is a copy of its logic
+ * (GenerateMoves, GenerateMovesSub, SaveMoves with fPartial FALSE, and
+ * LegalMove in eval.c) with a caller-owned list. It gives the same moves
+ * in the same order; tools/test_legal.c checks this.
+ */
+
+typedef struct {
+    int anMove[8];
+    positionkey key;
+    unsigned int cMoves, cPips;
+} legal_move;
+
+typedef struct {
+    unsigned int cMoves, cMaxMoves, cMaxPips;
+    legal_move *amMoves;        /* MAX_INCOMPLETE_MOVES entries */
+} legal_list;
+
+static void
+save_move(legal_list *pml, unsigned int cMoves, unsigned int cPip, const int anMoves[], const TanBoard anBoard)
+{
+    unsigned int i, j;
+    legal_move *pm;
+    positionkey key;
+
+    if (cMoves < pml->cMaxMoves || cPip < pml->cMaxPips)
+        return;
+
+    if (cMoves > pml->cMaxMoves || cPip > pml->cMaxPips)
+        pml->cMoves = 0;
+
+    pml->cMaxMoves = cMoves;
+    pml->cMaxPips = cPip;
+
+    PositionKey(anBoard, &key);
+
+    for (i = 0; i < pml->cMoves; i++) {
+        pm = &pml->amMoves[i];
+        if (EqualKeys(key, pm->key)) {
+            if (cMoves > pm->cMoves || cPip > pm->cPips) {
+                for (j = 0; j < cMoves * 2; j++)
+                    pm->anMove[j] = anMoves[j] > -1 ? anMoves[j] : -1;
+                if (cMoves < 4)
+                    pm->anMove[cMoves * 2] = -1;
+                pm->cMoves = cMoves;
+                pm->cPips = cPip;
+            }
+            return;
+        }
+    }
+
+    if (pml->cMoves >= MAX_INCOMPLETE_MOVES)
+        return;
+
+    pm = &pml->amMoves[pml->cMoves++];
+    for (i = 0; i < cMoves * 2; i++)
+        pm->anMove[i] = anMoves[i] > -1 ? anMoves[i] : -1;
+    if (cMoves < 4)
+        pm->anMove[cMoves * 2] = -1;
+    CopyKey(key, pm->key);
+    pm->cMoves = cMoves;
+    pm->cPips = cPip;
+}
+
+/* Can a checker on iSrc (not the bar) move nPips? */
+static int
+legal_sub_move(const TanBoard anBoard, int iSrc, int nPips)
+{
+    int nBack;
+    const int iDest = iSrc - nPips;
+
+    if (iDest >= 0)
+        return anBoard[0][23 - iDest] < 2;
+
+    /* bearing off */
+    for (nBack = 24; nBack > 0; nBack--)
+        if (anBoard[1][nBack] > 0)
+            break;
+
+    return nBack <= 5 && (iSrc == nBack || iDest == -1);
+}
+
+static int
+generate_moves_sub(legal_list *pml, const int anRoll[], int nMoveDepth, int iPip, int cPip,
+                   const TanBoard anBoard, int anMoves[])
+{
+    int i, fUsed = 0;
+    TanBoard anBoardNew;
+
+    if (nMoveDepth > 3 || !anRoll[nMoveDepth])
+        return TRUE;
+
+    if (anBoard[1][24]) {       /* on bar */
+        if (anBoard[0][anRoll[nMoveDepth] - 1] >= 2)
+            return TRUE;
+
+        anMoves[nMoveDepth * 2] = 24;
+        anMoves[nMoveDepth * 2 + 1] = 24 - anRoll[nMoveDepth];
+
+        memcpy(anBoardNew, anBoard, sizeof(anBoardNew));
+        ApplySubMove(anBoardNew, 24, anRoll[nMoveDepth], TRUE);
+
+        if (generate_moves_sub(pml, anRoll, nMoveDepth + 1, 23, cPip + anRoll[nMoveDepth],
+                               (ConstTanBoard) anBoardNew, anMoves))
+            save_move(pml, nMoveDepth + 1, cPip + anRoll[nMoveDepth], anMoves, (ConstTanBoard) anBoardNew);
+
+        return FALSE;
+    }
+
+    for (i = iPip; i >= 0; i--)
+        if (anBoard[1][i] && legal_sub_move(anBoard, i, anRoll[nMoveDepth])) {
+            anMoves[nMoveDepth * 2] = i;
+            anMoves[nMoveDepth * 2 + 1] = i - anRoll[nMoveDepth];
+
+            memcpy(anBoardNew, anBoard, sizeof(anBoardNew));
+            ApplySubMove(anBoardNew, i, anRoll[nMoveDepth], TRUE);
+
+            if (generate_moves_sub(pml, anRoll, nMoveDepth + 1, anRoll[0] == anRoll[1] ? i : 23,
+                                   cPip + anRoll[nMoveDepth], (ConstTanBoard) anBoardNew, anMoves))
+                save_move(pml, nMoveDepth + 1, cPip + anRoll[nMoveDepth], anMoves, (ConstTanBoard) anBoardNew);
+
+            fUsed = 1;
+        }
+
+    return !fUsed;
+}
+
+/* Fills pml (its buffer allocated here; g_free it) and returns the move count. */
+static unsigned int
+generate_moves(legal_list *pml, const TanBoard anBoard, int n0, int n1)
+{
+    int anRoll[4], anMoves[8];
+
+    anRoll[0] = n0;
+    anRoll[1] = n1;
+    anRoll[2] = anRoll[3] = n0 == n1 ? n0 : 0;
+
+    pml->cMoves = pml->cMaxMoves = pml->cMaxPips = 0;
+    pml->amMoves = g_new(legal_move, MAX_INCOMPLETE_MOVES);
+    generate_moves_sub(pml, anRoll, 0, 23, 0, anBoard, anMoves);
+
+    if (n0 != n1) {
+        anRoll[0] = n1;
+        anRoll[1] = n0;
+        generate_moves_sub(pml, anRoll, 0, 23, 0, anBoard, anMoves);
+    }
+
+    return pml->cMoves;
+}
+
+static int
+valid_dice(int die1, int die2)
+{
+    return die1 >= 1 && die1 <= 6 && die2 >= 1 && die2 <= 6;
+}
+
+GNUBG_API int
+gnubg_legal_moves(const gnubg_board board, int die1, int die2, gnubg_move *out, int max_out)
+{
+    TanBoard anBoard;
+    legal_list ml;
+    unsigned int i;
+    int j;
+
+    if (!valid_dice(die1, die2) || to_tan(board, anBoard) < 0 || max_out < 0 || (max_out && !out))
+        return -1;
+
+    generate_moves(&ml, (ConstTanBoard) anBoard, die1, die2);
+
+    for (i = 0; i < ml.cMoves && (int) i < max_out; i++) {
+        const legal_move *pm = &ml.amMoves[i];
+        gnubg_move *m = &out[i];
+
+        memset(m, 0, sizeof(*m));
+        for (j = 0; j < 4 && pm->anMove[2 * j] >= 0; j++) {
+            m->from[j] = pm->anMove[2 * j] + 1;
+            m->to[j] = pm->anMove[2 * j + 1] + 1;
+        }
+        m->count = j;
+        format_move((ConstTanBoard) anBoard, m, m->text, sizeof(m->text));
+    }
+
+    g_free(ml.amMoves);
+    return (int) ml.cMoves;
+}
+
+GNUBG_API int
+gnubg_is_legal_move(const gnubg_board board, int die1, int die2, const gnubg_move *move)
+{
+    TanBoard anBoard, anAfter;
+    legal_list ml;
+    positionkey key;
+    int anMove[8];
+    unsigned int i;
+    int legal = FALSE;
+
+    if (!valid_dice(die1, die2) || !move || to_tan(board, anBoard) < 0)
+        return -1;
+    if (move->count < 0 || move->count > 4)
+        return 0;
+
+    for (i = 0; i < 8; i++)
+        anMove[i] = -1;
+    for (i = 0; i < (unsigned int) move->count; i++) {
+        if (move->from[i] < 1 || move->from[i] > 25 || move->to[i] < 0 || move->to[i] > 24)
+            return 0;
+        anMove[2 * i] = move->from[i] - 1;
+        anMove[2 * i + 1] = move->to[i] - 1;
+    }
+    /* Steps may span several dice (gnubg writes 24/18 18/13 as 24/13). */
+    memcpy(anAfter, anBoard, sizeof(anAfter));
+    if (ApplyMove(anAfter, anMove, FALSE) < 0)
+        return 0;
+    PositionKey((ConstTanBoard) anAfter, &key);
+
+    generate_moves(&ml, (ConstTanBoard) anBoard, die1, die2);
+    if (ml.cMoves == 0)
+        legal = move->count == 0;
+    else
+        for (i = 0; i < ml.cMoves && !legal; i++)
+            legal = EqualKeys(key, ml.amMoves[i].key);
+    g_free(ml.amMoves);
+    return legal;
+}
+
+/*
+ * Legal steps. A full move must play as many pips as possible: that is
+ * both rules at once (use as many dice as you can; if only one die can be
+ * used, the larger one), as in SaveMoves. So a step is legal when the
+ * pips played so far, plus its die, plus the most that can still be
+ * played after it, reach the most the turn allows. Every order of every
+ * move is searched, so no intermediate landing point is lost.
+ */
+
+typedef struct {
+    TanBoard anBoard;
+    int anDice[4];      /* dice left, ascending */
+    int nDice;
+    int cPips;          /* pips played so far */
+} turn_state;
+
+/* Can a checker on iSrc (24 = bar) move nPips, under the bar rule? */
+static int
+can_step(const TanBoard anBoard, int iSrc, int nPips)
+{
+    if (anBoard[1][24] && iSrc != 24)
+        return FALSE;
+    return anBoard[1][iSrc] > 0 && legal_sub_move(anBoard, iSrc, nPips);
+}
+
+/* Play the k-th die left from iSrc (which must be a legal step). */
+static void
+play_step(const turn_state *ps, int k, int iSrc, turn_state *pnew)
+{
+    int i;
+
+    *pnew = *ps;
+    ApplySubMove(pnew->anBoard, iSrc, ps->anDice[k], TRUE);
+    pnew->cPips += ps->anDice[k];
+    for (i = k; i < ps->nDice - 1; i++)
+        pnew->anDice[i] = ps->anDice[i + 1];
+    pnew->nDice--;
+}
+
+/* The most pips that can still be played from ps. */
+static int
+max_pips(const turn_state *ps)
+{
+    int left = 0, best = 0;
+    int i, k;
+    turn_state next;
+
+    for (k = 0; k < ps->nDice; k++)
+        left += ps->anDice[k];
+
+    for (k = 0; k < ps->nDice; k++) {
+        if (k && ps->anDice[k] == ps->anDice[k - 1])
+            continue;
+        for (i = 24; i >= 0; i--)
+            if (can_step((ConstTanBoard) ps->anBoard, i, ps->anDice[k])) {
+                int n;
+
+                play_step(ps, k, i, &next);
+                n = ps->anDice[k] + max_pips(&next);
+                if (n > best)
+                    best = n;
+                if (best == left)
+                    return best;
+            }
+    }
+    return best;
+}
+
+/*
+ * Follow played from ps, keeping to moves that reach nTarget pips. A step
+ * without a die tries the smaller fitting die first. 0 on success.
+ */
+static int
+follow_steps(turn_state *ps, int nTarget, const gnubg_step *played, int n_played)
+{
+    int iSrc, k;
+    turn_state next;
+
+    if (n_played == 0)
+        return 0;
+    if (played->from < 1 || played->from > 25 || played->to < 0 || played->to > 24)
+        return -1;
+
+    iSrc = played->from - 1;
+    for (k = 0; k < ps->nDice; k++) {
+        int nDie = ps->anDice[k];
+        int iDest = iSrc - nDie;
+
+        if ((k && nDie == ps->anDice[k - 1]) || (played->die && played->die != nDie))
+            continue;
+        if (iDest < 0 ? played->to != 0 : iDest != played->to - 1)
+            continue;
+        if (!can_step((ConstTanBoard) ps->anBoard, iSrc, nDie))
+            continue;
+        play_step(ps, k, iSrc, &next);
+        if (next.cPips + max_pips(&next) != nTarget)
+            continue;
+        if (follow_steps(&next, nTarget, played + 1, n_played - 1) == 0) {
+            *ps = next;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+GNUBG_API int
+gnubg_legal_steps(const gnubg_board start, int die1, int die2, const gnubg_step *played, int n_played,
+                  gnubg_step *out, int max_out)
+{
+    turn_state ts, next;
+    int nTarget, i, k, n = 0;
+
+    if (!valid_dice(die1, die2) || to_tan(start, ts.anBoard) < 0 || n_played < 0 || n_played > 4 ||
+        (n_played && !played) || max_out < 0 || (max_out && !out))
+        return -1;
+
+    ts.anDice[0] = MIN(die1, die2);
+    ts.anDice[1] = MAX(die1, die2);
+    ts.anDice[2] = ts.anDice[3] = die1;
+    ts.nDice = die1 == die2 ? 4 : 2;
+    ts.cPips = 0;
+
+    nTarget = max_pips(&ts);
+    if (follow_steps(&ts, nTarget, played, n_played) < 0)
+        return -2;
+
+    for (i = 24; i >= 0; i--)
+        for (k = 0; k < ts.nDice; k++) {
+            int nDie = ts.anDice[k];
+            int iDest = i - nDie;
+
+            if (k && nDie == ts.anDice[k - 1])
+                continue;
+            if (!can_step((ConstTanBoard) ts.anBoard, i, nDie))
+                continue;
+            play_step(&ts, k, i, &next);
+            if (next.cPips + max_pips(&next) != nTarget)
+                continue;
+            if (n < max_out) {
+                out[n].from = i + 1;
+                out[n].to = iDest < 0 ? 0 : iDest + 1;
+                out[n].die = nDie;
+                out[n].hit = iDest >= 0 && ts.anBoard[0][23 - iDest] == 1;
+            }
+            n++;
+        }
+
+    return n;
+}
+
 GNUBG_API void
 gnubg_swap_sides(gnubg_board board)
 {

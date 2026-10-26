@@ -4,6 +4,7 @@
  *   gnubg-cli DATADIR best POSITION_ID DIE1 DIE2
  *   gnubg-cli DATADIR cube POSITION_ID
  *   gnubg-cli DATADIR eval POSITION_ID
+ *   gnubg-cli DATADIR legal POSITION_ID DIE1 DIE2 [FROM/TO...]
  *   gnubg-cli DATADIR selfplay [SEED]
  *
  * Set GNUBG_SKILL=0..7 (beginner..grandmaster) to change the playing level.
@@ -85,6 +86,72 @@ cmd_eval(const char *id)
     return 0;
 }
 
+/*
+ * All legal moves, with the position each leads to, then the single steps
+ * that may come next after the steps given (e.g. "13/10"; "bar/22",
+ * "6/off", or "3/off:5" to say which die a step used).
+ */
+static int
+cmd_legal(const char *id, int d1, int d2, int argc, char *argv[])
+{
+    static gnubg_move moves[GNUBG_MAX_MOVES];
+    gnubg_board board, after;
+    gnubg_step played[4], steps[GNUBG_MAX_STEPS];
+    char pid[15];
+    int n, i;
+
+    if (gnubg_board_from_position_id(id, board) < 0) {
+        fprintf(stderr, "invalid position id: %s\n", id);
+        return 1;
+    }
+    if ((n = gnubg_legal_moves(board, d1, d2, moves, GNUBG_MAX_MOVES)) < 0) {
+        fprintf(stderr, "gnubg_legal_moves failed\n");
+        return 1;
+    }
+    printf("%d%d: %d legal move%s\n", d1, d2, n, n == 1 ? "" : "s");
+    for (i = 0; i < n; i++) {
+        memcpy(after, board, sizeof(gnubg_board));
+        gnubg_apply_move(after, &moves[i]);
+        gnubg_position_id(after, pid);
+        printf("  %-24s %s\n", moves[i].text, pid);
+    }
+
+    if (argc > 4) {
+        fprintf(stderr, "at most 4 steps\n");
+        return 2;
+    }
+    for (i = 0; i < argc; i++) {
+        char from[8], to[8];
+
+        played[i].die = 0;
+        if (sscanf(argv[i], "%7[^/]/%7[^:]:%d", from, to, &played[i].die) < 2) {
+            fprintf(stderr, "bad step: %s\n", argv[i]);
+            return 2;
+        }
+        played[i].from = strcmp(from, "bar") ? atoi(from) : 25;
+        played[i].to = strcmp(to, "off") ? atoi(to) : 0;
+    }
+    if ((n = gnubg_legal_steps(board, d1, d2, played, argc, steps, GNUBG_MAX_STEPS)) < 0) {
+        fprintf(stderr, n == -2 ? "not a legal start of the turn\n" : "gnubg_legal_steps failed\n");
+        return 1;
+    }
+    printf("next steps:%s", n ? "" : " (turn over)");
+    for (i = 0; i < n; i++) {
+        char from[8];
+
+        if (steps[i].from == 25)
+            strcpy(from, "bar");
+        else
+            sprintf(from, "%d", steps[i].from);
+        if (steps[i].to)
+            printf(" %s/%d%s", from, steps[i].to, steps[i].hit ? "*" : "");
+        else
+            printf(" %s/off:%d", from, steps[i].die);
+    }
+    printf("\n");
+    return 0;
+}
+
 /* Computer vs computer money game without cube: the loop a game front-end runs. */
 static int
 cmd_selfplay(unsigned int seed)
@@ -135,7 +202,8 @@ main(int argc, char *argv[])
                 "usage: %s DATADIR best POSITION_ID DIE1 DIE2\n"
                 "       %s DATADIR cube POSITION_ID\n"
                 "       %s DATADIR eval POSITION_ID\n"
-                "       %s DATADIR selfplay [SEED]\n", argv[0], argv[0], argv[0], argv[0]);
+                "       %s DATADIR legal POSITION_ID DIE1 DIE2 [FROM/TO...]\n"
+                "       %s DATADIR selfplay [SEED]\n", argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
 
@@ -154,6 +222,8 @@ main(int argc, char *argv[])
         rc = cmd_cube(argv[3]);
     else if (!strcmp(argv[2], "eval") && argc == 4)
         rc = cmd_eval(argv[3]);
+    else if (!strcmp(argv[2], "legal") && argc >= 6)
+        rc = cmd_legal(argv[3], atoi(argv[4]), atoi(argv[5]), argc - 6, argv + 6);
     else if (!strcmp(argv[2], "selfplay") && argc <= 4)
         rc = cmd_selfplay(argc == 4 ? (unsigned int) strtoul(argv[3], NULL, 10) : 0);
     else {

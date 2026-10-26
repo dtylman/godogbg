@@ -83,6 +83,19 @@ typedef struct {
     gnubg_eval eval;    /* evaluation after the move, from the mover's view */
 } gnubg_move;
 
+/* One checker step, using one die. */
+typedef struct {
+    int from;           /* 1..24, or 25 = bar */
+    int to;             /* 1..24, or 0 = borne off */
+    int die;            /* die value used, 1..6 (0 in input = any die that fits) */
+    int hit;            /* output only: the step hits a blot */
+} gnubg_step;
+
+/* gnubg's bound on the number of legal moves for one roll. */
+#define GNUBG_MAX_MOVES 3060
+/* At most 15 occupied points times 2 die values. */
+#define GNUBG_MAX_STEPS 30
+
 typedef struct {
     int should_double;  /* the player on roll should offer a double now */
     int should_take;    /* the opponent should take if doubled */
@@ -123,6 +136,47 @@ GNUBG_API int gnubg_evaluate(const gnubg_board board, const gnubg_match *match, 
 
 /* Apply a move found by gnubg_best_move (or built by the caller). 0 = ok, -1 = illegal. */
 GNUBG_API int gnubg_apply_move(gnubg_board board, const gnubg_move *move);
+
+/*
+ * Legal moves. These don't need gnubg_init(), and they only touch their
+ * arguments, so they may run while another thread is in gnubg_best_move().
+ */
+
+/*
+ * All legal moves for the player on roll, one per resulting position, in
+ * the order gnubg generates them (from, to and text filled in; eval zero).
+ * Returns the number of legal moves (0 = no legal move) and writes the
+ * first max_out of them to out (which may be NULL if max_out is 0), or
+ * returns -1 for a bad board or dice.
+ */
+GNUBG_API int gnubg_legal_moves(const gnubg_board board, int die1, int die2,
+                                gnubg_move *out, int max_out);
+
+/*
+ * 1 if move leads to the same position as one of gnubg_legal_moves() (an
+ * empty move is legal only when there is no legal move), 0 if not, -1 for
+ * a bad board or dice. A step may cover several dice, e.g. 24/13 for 6-5,
+ * but a blot hit on the way needs its own step (24/18 18/13).
+ */
+GNUBG_API int gnubg_is_legal_move(const gnubg_board board, int die1, int die2,
+                                 const gnubg_move *move);
+
+/*
+ * The single steps that may come next in a turn played one die at a time.
+ * start is the board at the start of the turn and played the n_played
+ * steps already made (from, to, and die or 0 for any). A step is listed
+ * if some legal full move starts with played followed by that step, in
+ * any order of its steps; a from/to pair that two dice can make (bearing
+ * off) is listed once per die. Steps are sorted by from (high first),
+ * then die (low first).
+ *
+ * Returns the number of steps (0 = the turn is over, at most
+ * GNUBG_MAX_STEPS) and writes the first max_out of them to out; -1 for a
+ * bad board or dice, -2 if played is not a legal start of the turn.
+ */
+GNUBG_API int gnubg_legal_steps(const gnubg_board start, int die1, int die2,
+                                const gnubg_step *played, int n_played,
+                                gnubg_step *out, int max_out);
 
 /* Swap sides, i.e. pass the turn: board[0] <-> board[1]. */
 GNUBG_API void gnubg_swap_sides(gnubg_board board);

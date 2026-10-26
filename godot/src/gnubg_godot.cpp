@@ -9,6 +9,7 @@
 #include "gnubg_godot.h"
 
 #include <cstring>
+#include <vector>
 
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
@@ -90,6 +91,31 @@ eval_dict(const gnubg_eval &p_eval)
     d["lose_backgammon"] = p_eval.lose_backgammon;
     d["equity"] = p_eval.equity;
     return d;
+}
+
+static bool
+to_move(const Dictionary &p_move, gnubg_move &r_move)
+{
+    PackedInt32Array from = p_move.get("from", PackedInt32Array());
+    PackedInt32Array to = p_move.get("to", PackedInt32Array());
+    ERR_FAIL_COND_V_MSG(from.size() != to.size() || from.size() > 4, false,
+                        "Gnubg: a move needs \"from\" and \"to\" arrays of equal length (at most 4).");
+
+    std::memset(&r_move, 0, sizeof(r_move));
+    r_move.count = from.size();
+    for (int i = 0; i < r_move.count; i++) {
+        r_move.from[i] = from[i];
+        r_move.to[i] = to[i];
+    }
+    return true;
+}
+
+static bool
+valid_dice(int p_die1, int p_die2)
+{
+    ERR_FAIL_COND_V_MSG(p_die1 < 1 || p_die1 > 6 || p_die2 < 1 || p_die2 > 6, false,
+                        "Gnubg: dice must be 1..6.");
+    return true;
 }
 
 /* Copy one file out of res:// unless an identical-size copy is there. */
@@ -337,19 +363,8 @@ Gnubg::apply_move(const PackedInt32Array &p_board, const Dictionary &p_move)
     gnubg_board board;
     gnubg_move move;
 
-    if (!to_board(p_board, board))
+    if (!to_board(p_board, board) || !to_move(p_move, move))
         return PackedInt32Array();
-    PackedInt32Array from = p_move.get("from", PackedInt32Array());
-    PackedInt32Array to = p_move.get("to", PackedInt32Array());
-    ERR_FAIL_COND_V_MSG(from.size() != to.size() || from.size() > 4, PackedInt32Array(),
-                        "Gnubg: a move needs \"from\" and \"to\" arrays of equal length (at most 4).");
-
-    std::memset(&move, 0, sizeof(move));
-    move.count = from.size();
-    for (int i = 0; i < move.count; i++) {
-        move.from[i] = from[i];
-        move.to[i] = to[i];
-    }
 
     std::lock_guard<std::mutex> lock(util_mutex);
     if (gnubg_apply_move(board, &move) < 0)
@@ -377,6 +392,93 @@ Gnubg::game_status(const PackedInt32Array &p_board)
         return -1;
     std::lock_guard<std::mutex> lock(util_mutex);
     return gnubg_game_status(board);
+}
+
+/*
+ * The legal-move functions don't use the evaluator or any shared state,
+ * so they take no lock and never wait for a running best_move_async().
+ */
+
+Array
+Gnubg::legal_moves(const PackedInt32Array &p_board, int p_die1, int p_die2) const
+{
+    gnubg_board board;
+    Array result;
+
+    if (!to_board(p_board, board) || !valid_dice(p_die1, p_die2))
+        return result;
+
+    std::vector<gnubg_move> moves(64);
+    int n = gnubg_legal_moves(board, p_die1, p_die2, moves.data(), int(moves.size()));
+    if (n > int(moves.size())) {
+        moves.resize(n);
+        n = gnubg_legal_moves(board, p_die1, p_die2, moves.data(), n);
+    }
+    ERR_FAIL_COND_V_MSG(n < 0, result, "Gnubg: legal_moves failed (bad board?).");
+
+    for (int i = 0; i < n; i++) {
+        PackedInt32Array from, to;
+        for (int j = 0; j < moves[i].count; j++) {
+            from.push_back(moves[i].from[j]);
+            to.push_back(moves[i].to[j]);
+        }
+        Dictionary d;
+        d["from"] = from;
+        d["to"] = to;
+        d["text"] = String(moves[i].text);
+        result.push_back(d);
+    }
+    return result;
+}
+
+bool
+Gnubg::is_legal_move(const PackedInt32Array &p_board, int p_die1, int p_die2, const Dictionary &p_move) const
+{
+    gnubg_board board;
+    gnubg_move move;
+
+    if (!to_board(p_board, board) || !valid_dice(p_die1, p_die2) || !to_move(p_move, move))
+        return false;
+    int r = gnubg_is_legal_move(board, p_die1, p_die2, &move);
+    ERR_FAIL_COND_V_MSG(r < 0, false, "Gnubg: is_legal_move failed (bad board?).");
+    return r == 1;
+}
+
+Array
+Gnubg::legal_steps(const PackedInt32Array &p_start_board, int p_die1, int p_die2, const Array &p_played) const
+{
+    gnubg_board board;
+    gnubg_step played[4], steps[GNUBG_MAX_STEPS];
+    Array result;
+
+    if (!to_board(p_start_board, board) || !valid_dice(p_die1, p_die2))
+        return result;
+    ERR_FAIL_COND_V_MSG(p_played.size() > 4, result, "Gnubg: legal_steps: at most 4 steps can be played.");
+    for (int i = 0; i < p_played.size(); i++) {
+        ERR_FAIL_COND_V_MSG(p_played[i].get_type() != Variant::DICTIONARY, result,
+                            "Gnubg: legal_steps: each played step must be a {from, to} Dictionary.");
+        Dictionary step = p_played[i];
+        ERR_FAIL_COND_V_MSG(!step.has("from") || !step.has("to"), result,
+                            "Gnubg: legal_steps: each played step needs \"from\" and \"to\".");
+        played[i].from = step["from"];
+        played[i].to = step["to"];
+        played[i].die = step.get("die", 0);
+        played[i].hit = 0;
+    }
+
+    int n = gnubg_legal_steps(board, p_die1, p_die2, played, int(p_played.size()), steps, GNUBG_MAX_STEPS);
+    ERR_FAIL_COND_V_MSG(n == -2, result, "Gnubg: legal_steps: the played steps are not a legal start of this turn.");
+    ERR_FAIL_COND_V_MSG(n < 0, result, "Gnubg: legal_steps failed (bad board?).");
+
+    for (int i = 0; i < n; i++) {
+        Dictionary d;
+        d["from"] = steps[i].from;
+        d["to"] = steps[i].to;
+        d["die"] = steps[i].die;
+        d["hit"] = bool(steps[i].hit);
+        result.push_back(d);
+    }
+    return result;
 }
 
 PackedInt32Array
@@ -447,6 +549,10 @@ Gnubg::_bind_methods()
     ClassDB::bind_method(D_METHOD("apply_move", "board", "move"), &Gnubg::apply_move);
     ClassDB::bind_method(D_METHOD("swap_sides", "board"), &Gnubg::swap_sides);
     ClassDB::bind_method(D_METHOD("game_status", "board"), &Gnubg::game_status);
+    ClassDB::bind_method(D_METHOD("legal_moves", "board", "die1", "die2"), &Gnubg::legal_moves);
+    ClassDB::bind_method(D_METHOD("is_legal_move", "board", "die1", "die2", "move"), &Gnubg::is_legal_move);
+    ClassDB::bind_method(D_METHOD("legal_steps", "start_board", "die1", "die2", "played"), &Gnubg::legal_steps,
+                         DEFVAL(Array()));
     ClassDB::bind_method(D_METHOD("board_from_position_id", "id"), &Gnubg::board_from_position_id);
     ClassDB::bind_method(D_METHOD("position_id", "board"), &Gnubg::position_id);
 

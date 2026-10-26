@@ -171,6 +171,16 @@ if(GNUBG_BUILD_CLI)
     elseif(NOT WIN32)
         set_target_properties(gnubg-cli PROPERTIES BUILD_RPATH "$ORIGIN")
     endif()
+
+    # Checks the legal-move API against the engine's own GenerateMoves(),
+    # so it links the static library and sees the engine headers.
+    add_executable(test-legal tools/test_legal.c)
+    target_link_libraries(test-legal PRIVATE gnubg_static)
+    target_include_directories(test-legal PRIVATE
+        $<TARGET_PROPERTY:gnubg_objects,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(test-legal PRIVATE
+        $<TARGET_PROPERTY:gnubg_objects,COMPILE_DEFINITIONS>)
+    target_compile_options(test-legal PRIVATE ${GLIB_COMPILE_OPTIONS} -O2)
 endif()
 
 if(GNUBG_BUILD_GODOT)

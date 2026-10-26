@@ -140,6 +140,60 @@ The `match` keys, all optional, follow `gnubg_match` in
 | `position_id(board)` / `board_from_position_id(id)` | gnubg's 14-character position IDs, e.g. `"4HPwATDgc/ABMA"` |
 | `seed(seed: int)` / `roll_dice()` | Built-in dice, `[d1, d2]`. Seed `0` seeds from the clock, and `init()` does that too. |
 
+### Legal moves
+
+`apply_move()` only checks that each step is physically possible. These
+apply the full rules: as many dice as possible, the larger die if only one
+can be played, four steps for a double. They don't need `init()`.
+
+| Method | Returns |
+|---|---|
+| `legal_steps(start_board, die1, die2, played: Array = [])` | `Array` of `{from: int, to: int, die: int, hit: bool}`: every single step that can come next. `start_board` is the board at the **start of the turn**, and `played` lists the steps already made this turn, in order, as `{from, to}` Dictionaries (add `die` to say which die a step used; a `legal_steps()` entry works as is). Empty when the turn is over. If `played` isn't a legal start of the turn, logs an error and returns `[]`. |
+| `legal_moves(board, die1, die2)` | `Array` of `{from: PackedInt32Array, to: PackedInt32Array, text: String}`: gnubg's list of legal full moves, one per resulting position. Empty when there is no legal move. |
+| `is_legal_move(board, die1, die2, move: Dictionary)` | `bool`: whether `{from, to}` leads to the same position as one of `legal_moves()`. A step may cover several dice (`24/13` for 6-5), but a blot hit on the way needs its own step. An empty move is legal only when there is no legal move. |
+
+`legal_steps()` is for a UI that plays one die at a time. A step is listed
+if **any** order of a legal full move starts with `played` followed by that
+step. gnubg's `legal_moves()` keeps one move per resulting position, so it
+has `13/7 7/5` but not `13/11 11/5`; `legal_steps()` offers both paths.
+Legality depends on the start of the turn: if both dice can only be used
+when one is played first, the other one isn't offered first.
+
+About `die`: a step bearing a checker off can use a die larger than the
+point (from the highest point), so the same `from`/`to` can be listed once
+for each die. Pass the one the player picked back in `played` (if `die` is
+left out there, the smaller die that keeps the turn legal is assumed).
+`to` is `0` for borne off and `from` is `25` for the bar. There are at most
+30 steps at a time (15 points times 2 dice); 20 is the most seen in
+practice. `legal_moves()` can return up to 3060 moves (618 seen in
+practice).
+
+```gdscript
+var turn_start: PackedInt32Array   # board when the dice were rolled
+var played := []                   # steps made this turn, for undo too
+var board: PackedInt32Array        # what the player sees
+
+# Targets for the checker the player tapped.
+func targets(point: int) -> Array:
+    return Gnubg.legal_steps(turn_start, dice[0], dice[1], played) \
+        .filter(func(s): return s.from == point)
+
+func play_step(step: Dictionary) -> void:     # one of targets()
+    played.append(step)
+    board = Gnubg.apply_move(board, {"from": [step.from], "to": [step.to]})
+    if Gnubg.legal_steps(turn_start, dice[0], dice[1], played).is_empty():
+        end_turn()                            # dice used as far as the rules allow
+
+func undo_step() -> void:
+    played.pop_back()
+    board = turn_start
+    for s in played:
+        board = Gnubg.apply_move(board, {"from": [s.from], "to": [s.to]})
+```
+
+If `targets()` lists two steps to the same point (bearing off with either
+die), prefer the smaller die.
+
 ## Threading
 
 At world-class level a move takes tens of milliseconds, and some positions
@@ -167,8 +221,10 @@ for an evaluation.
 ## Tests
 
 [godot/test/test_gnubg.gd](../godot/test/test_gnubg.gd) checks the reference
-positions from `gnubg-cli`, the error handling and the async path, then plays
-a full seed-42 game:
+positions from `gnubg-cli`, the error handling and the async path, the
+legal-move rules (bar, bearing off, one die only, doubles cut short, step
+order) and step paths against `legal_moves()` on a self-play game, then
+plays a full seed-42 game:
 
 ```bash
 G=~/godot/Godot_v4.7.2-stable_linux.x86_64

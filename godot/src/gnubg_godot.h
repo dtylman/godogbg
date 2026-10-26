@@ -15,6 +15,7 @@
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/templates/hash_map.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -63,6 +64,10 @@ public:
     PackedInt32Array apply_move(const PackedInt32Array &p_board, const Dictionary &p_move);
     PackedInt32Array swap_sides(const PackedInt32Array &p_board) const;
     int game_status(const PackedInt32Array &p_board);
+    Array legal_moves(const PackedInt32Array &p_board, int p_die1, int p_die2) const;
+    bool is_legal_move(const PackedInt32Array &p_board, int p_die1, int p_die2, const Dictionary &p_move) const;
+    Array legal_steps(const PackedInt32Array &p_start_board, int p_die1, int p_die2,
+                      const Array &p_played = Array()) const;
     PackedInt32Array board_from_position_id(const String &p_id);
     String position_id(const PackedInt32Array &p_board);
 

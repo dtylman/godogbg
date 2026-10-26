@@ -10,6 +10,7 @@ All builds use CMake from a Debian 12 host.
 | `libgnubg.dll.a` | Windows only: import library for `gnubg.dll`. |
 | `libgnubg.a` | Static archive of the engine. Link it together with glib, for example into your GDExtension library, to ship a single binary. |
 | `gnubg-cli` | Test driver and usage example ([tools/gnubg_cli.c](../tools/gnubg_cli.c)). |
+| `test-legal` | Checks the legal-move API against the engine's `GenerateMoves()` ([tools/test_legal.c](../tools/test_legal.c)). |
 
 ## CMake options
 
@@ -17,7 +18,7 @@ All builds use CMake from a Debian 12 host.
 |---|---|---|
 | `GNUBG_SIMD` | `auto` | `auto`, `none`, `sse2`, `avx` or `neon`. `auto` picks `sse2` on x86_64, `neon` on arm64 and `none` otherwise. |
 | `GNUBG_STATIC_GLIB` | `ON` | Link glib and its dependencies (pcre2, plus libintl/libiconv on Windows and Android) statically into the shared library. |
-| `GNUBG_BUILD_CLI` | `ON` | Build `gnubg-cli`. |
+| `GNUBG_BUILD_CLI` | `ON` | Build `gnubg-cli` and `test-legal`. |
 | `GNUBG_BUILD_GODOT` | `OFF` | Also build the Godot GDExtension in [godot/](../godot/) (needs a C++ compiler; downloads godot-cpp). See [GODOT.md](GODOT.md). |
 | `GODOTCPP_TARGET` | `template_debug` | With `GNUBG_BUILD_GODOT`: `template_debug` or `template_release`. |
 
@@ -40,6 +41,8 @@ ldd build/linux-x86_64/libgnubg.so            # only libc, libm, libmvec
 nm -D --defined-only build/linux-x86_64/libgnubg.so   # only gnubg_* symbols
 build/linux-x86_64/gnubg-cli data best 4HPwATDgc/ABMA 3 1
 build/linux-x86_64/gnubg-cli data selfplay 42
+build/linux-x86_64/gnubg-cli data legal 4HPwATDgc/ABMA 3 1   # legal moves and steps
+build/linux-x86_64/test-legal data 20       # ends with "0 failure(s)"
 ```
 
 Set `GNUBG_SKILL=0..7` to run `gnubg-cli` at another level (0 = beginner,
