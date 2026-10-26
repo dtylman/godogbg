@@ -1,10 +1,10 @@
 # CMake toolchain for Windows x86_64 with the Debian mingw-w64 cross compiler.
 #
-#   scripts/build-glib-mingw.sh
+#   scripts/build-glib.sh mingw-x86_64
 #   cmake -S . -B build/windows-x86_64 \
 #       --toolchain cmake/toolchains/mingw-w64-x86_64.cmake
 #
-# GNUBG_DEPS_PREFIX is where scripts/build-glib-mingw.sh installed glib.
+# GNUBG_DEPS_PREFIX is where scripts/build-glib.sh installed glib.
 
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)

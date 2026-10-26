@@ -18,8 +18,9 @@
 #include "matchequity.h"
 #include "multithread.h"
 #include "positionid.h"
-#include "lib/SFMT.h"
+/* simd.h first: SFMT.h #undefs HAVE_NEON, which simd.h needs. */
 #include "lib/simd.h"
+#include "lib/SFMT.h"
 
 #include "gnubg_api.h"
 

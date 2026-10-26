@@ -16,7 +16,7 @@ All builds use CMake from a Debian 12 host.
 | Option | Default | Meaning |
 |---|---|---|
 | `GNUBG_SIMD` | `auto` | `auto`, `none`, `sse2`, `avx` or `neon`. `auto` picks `sse2` on x86_64, `neon` on arm64 and `none` otherwise. |
-| `GNUBG_STATIC_GLIB` | `ON` | Link glib (and pcre2) statically into the shared library. |
+| `GNUBG_STATIC_GLIB` | `ON` | Link glib and its dependencies (pcre2, plus libintl/libiconv on Windows and Android) statically into the shared library. |
 | `GNUBG_BUILD_CLI` | `ON` | Build `gnubg-cli`. |
 
 Use `avx` only if every target CPU supports AVX. The engine checks at start-up
@@ -60,7 +60,7 @@ network access. The result is installed in `build/deps/mingw-x86_64`. This
 only needs to run once.
 
 ```bash
-scripts/build-glib-mingw.sh
+scripts/build-glib.sh mingw-x86_64
 ```
 
 Then build with the toolchain file, which points pkg-config only at that
@@ -98,7 +98,59 @@ to about 1.2 MB.
 
 ## Android arm64-v8a (NDK)
 
-Not done yet. This needs a static glib built with the NDK, or a small glib shim.
+Built with the Android NDK (r28c tested; use r28 or newer, since those align
+libraries to 16 KB pages, as Android 15+ requires). The minimum Android
+version is **API 21** (Android 5.0), which works with any Godot 4 export
+preset.
+
+Android's libc only has `iconv` from API 28, so the script also cross-builds
+GNU libiconv 1.17 (static, sha256-checked) before glib. It needs the same
+packages as the Windows build, minus mingw: `meson ninja-build pkg-config git
+curl make`.
+
+```bash
+export ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/28.2.13676358
+scripts/build-glib.sh android-arm64          # once; ANDROID_API=21 by default
+cmake -S . -B build/android-arm64 \
+    --toolchain cmake/toolchains/android-arm64.cmake
+cmake --build build/android-arm64 -j
+```
+
+The toolchain file wraps the NDK's `android.toolchain.cmake`. It sets
+`ANDROID_ABI=arm64-v8a` and `ANDROID_PLATFORM=android-21` (don't go lower
+than the `ANDROID_API` glib was built for), and points pkg-config at
+`build/deps/android-arm64`. The SIMD backend is NEON.
+
+Outputs: `libgnubg.so`, `libgnubg.a` and `gnubg-cli`. The library needs only
+`libc.so`, `libm.so` and `libdl.so`. Check the result:
+
+```bash
+R=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
+$R/llvm-readelf -d build/android-arm64/libgnubg.so | grep NEEDED
+$R/llvm-readelf -l build/android-arm64/libgnubg.so | grep LOAD   # align 0x4000
+$R/llvm-nm -D --defined-only build/android-arm64/libgnubg.so      # only gnubg_*
+```
+
+To run `gnubg-cli` on a device or emulator, push it next to `libgnubg.so`
+(it has a `$ORIGIN` runpath) together with `data/`. An x86_64 emulator image
+of API 30 or newer runs arm64 binaries through its translation layer
+(`ro.enable.native.bridge.exec=1`), so no arm64 hardware is needed:
+
+```bash
+emulator -avd Pixel_8 -read-only -no-window -no-audio &
+adb wait-for-device
+adb shell mkdir -p /data/local/tmp/gnubg
+adb push build/android-arm64/libgnubg.so build/android-arm64/gnubg-cli data \
+    /data/local/tmp/gnubg/
+adb shell 'cd /data/local/tmp/gnubg && ./gnubg-cli data best 4HPwATDgc/ABMA 3 1'
+adb emu kill
+```
+
+The output matches Linux. As on Windows, self-play games can differ on exact
+equity ties because bionic's `qsort` orders equal elements differently.
+
+`libgnubg.so` is about 2.6 MB. Strip it with `$R/llvm-strip` to get it to
+about 1.9 MB.
 
 ## Updating the engine sources
 

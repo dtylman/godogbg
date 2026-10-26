@@ -163,7 +163,11 @@ endif()
 if(GNUBG_BUILD_CLI)
     add_executable(gnubg-cli tools/gnubg_cli.c)
     target_link_libraries(gnubg-cli PRIVATE gnubg_shared)
-    if(NOT WIN32)
+    if(ANDROID)
+        # CMake drops BUILD_RPATH on Android, and the translated linker in
+        # x86_64 emulators ignores LD_LIBRARY_PATH.
+        set_target_properties(gnubg-cli PROPERTIES LINK_FLAGS "-Wl,-rpath,\\$ORIGIN")
+    elseif(NOT WIN32)
         set_target_properties(gnubg-cli PROPERTIES BUILD_RPATH "$ORIGIN")
     endif()
 endif()
